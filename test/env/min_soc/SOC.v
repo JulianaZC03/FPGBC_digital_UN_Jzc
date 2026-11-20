@@ -1,155 +1,100 @@
-`timescale 1ns / 1ps
-module SOC (
-    input        clk,    // system clock 
-    input        resetn, // reset button
-    output wire  LEDS,   // system LEDs
-    input        RXD,    // UART receive
-    output       TXD,     // UART transmit
-    input        interrupt_request
+`timescale 1ns/1ps
+
+// Calculadora original: código/constantes en cartucho, pila/datos en BRAM.
+// ROM 0000..0FFF, RAM 1000..2FFF; el binario inicializa SP=2000.
+module SOC #(
+    parameter integer CART_WAIT_CYCLES = 16
+) (
+    input wire clk,
+    input wire resetn,
+    input wire RXD,
+    output wire TXD,
+    output wire link_oe,
+    input wire [7:0] cart_data,
+    output wire [15:0] cart_addr,
+    output wire cart_clk,
+    output wire cart_wr_n,
+    output wire cart_rd_n,
+    output wire cart_cs_n,
+    output wire cart_ctrl_oe,
+    output wire cart_data_dir
 );
+    wire [31:0] mem_addr, mem_wdata;
+    reg [31:0] mem_rdata;
+    wire [3:0] mem_wmask;
+    wire mem_rstrb;
+    wire wr = |mem_wmask;
 
-   wire [31:0] mem_addr;
-   reg  [31:0] mem_rdata;
-   wire mem_rstrb;
-   wire [31:0] mem_wdata;
-   wire [3:0]  mem_wmask;
+    wire cart_sel = mem_addr < 32'h00001000;
+    wire ram_sel = mem_addr >= 32'h00001000 && mem_addr < 32'h00003000;
+    wire uart_sel = mem_addr[31:16] == 16'h0040;
+    wire sqrt_sel = mem_addr[31:16] == 16'h0041;
+    wire bin2bcd_sel = mem_addr[31:16] == 16'h0044;
+    wire bcd2bin_sel = mem_addr[31:16] == 16'h0046;
+    wire [31:0] ram_addr = mem_addr - 32'h00001000;
 
-  // ============== Chip_Select (Addres decoder) ======================== 
-  // se hace con los 8 bits mas significativos de mem_addr
-  // Se asigna el rango de la memoria de programa 0x00000000 - 0x003FFFFF
-  // ====================================================================
-  reg [7:0]cs;  // CHIP-SELECT
+    wire [31:0] cart_dout, ram_dout, uart_dout;
+    wire [31:0] sqrt_dout, bin2bcd_dout, bcd2bin_dout;
+    wire cart_rbusy, cart_read_enable;
 
-   FemtoRV32 CPU(
-      .clk(clk),
-      .reset(resetn),
-      .mem_addr(mem_addr),
-      .mem_rdata(mem_rdata),
-      .mem_rstrb(mem_rstrb),
-      .mem_wdata(mem_wdata),
-      .mem_wmask(mem_wmask),
-      .mem_rbusy(1'b0),
-      .mem_wbusy(1'b0),
-      .interrupt_request(interrupt_request)
-   );
-   wire [31:0] RAM_rdata;
-   wire  wr = |mem_wmask;
-   wire  rd = mem_rstrb;
+    assign link_oe = 1'b1;
+    assign cart_ctrl_oe = resetn;
+    assign cart_data_dir = 1'b1;
+    assign cart_clk = 1'b0;
+    assign cart_wr_n = 1'b1; // Solo lectura: no modificar flash ni MBC5.
+    assign cart_cs_n = 1'b1; // /CS del conector selecciona FRAM, no la ROM.
+    assign cart_rd_n = !resetn || !cart_read_enable;
 
-   bram RAM(
-      .clk(clk),
-      .mem_addr(mem_addr),
-      .mem_rdata(RAM_rdata),
-      .mem_rstrb(cs[0] & rd),
-      .mem_wdata(mem_wdata),
-      .mem_wmask({4{cs[0]}}&mem_wmask)
-   );
+    FemtoRV32 #(.RESET_ADDR(32'h00000000)) CPU (
+        .clk(clk), .reset(resetn),
+        .mem_addr(mem_addr), .mem_rdata(mem_rdata),
+        .mem_rstrb(mem_rstrb), .mem_wdata(mem_wdata), .mem_wmask(mem_wmask),
+        .mem_rbusy(cart_rbusy), .mem_wbusy(1'b0),
+        .interrupt_request(1'b0)
+    );
 
-   wire [31:0] uart_dout;
-   wire [31:0] test_dout;
-   wire [31:0] div_dout;
-   wire [31:0] sqrt_dout;
-   wire [31:0] bin2bcd_dout;
-   wire [31:0] bcd2bin_dout;
+    // Sin firmware inicial: ninguna instrucción se ejecuta desde esta RAM.
+    bram RAM (
+        .clk(clk), .mem_addr(ram_addr), .mem_rdata(ram_dout),
+        .mem_rstrb(ram_sel && mem_rstrb),
+        .mem_wdata(mem_wdata), .mem_wmask({4{ram_sel}} & mem_wmask)
+    );
 
-  peripheral_uart #(
-//     .clk_freq(50000000),  // for primer 25k
-//     .clk_freq(33333333),  // for efinix
-//     .clk_freq(27000000),  // for nano_20k
-     .clk_freq(40_000_000),  // for TEST
-//     .clk_freq(12000000),    // for icebreaker
-     .baud(57_600)            // 57600 for gowin
-   ) per_uart(
-     .clk(clk),
-     .rst(!resetn),
-     .d_in(mem_wdata),
-     .cs(cs[5]),
-     .addr(mem_addr[4:0]),
-     .rd(rd),
-     .wr(wr),
-     .d_out(uart_dout),
-     .uart_tx(TXD),
-     .uart_rx(RXD),
-     .ledout(LEDS)
-   );
+    cart_memory #(.WAIT_CYCLES(CART_WAIT_CYCLES)) per_cart (
+        .clk(clk), .reset(!resetn), .cs(cart_sel), .rd(mem_rstrb),
+        .addr(mem_addr[13:0]), .d_out(cart_dout), .rbusy(cart_rbusy),
+        .cart_data(cart_data), .cart_addr(cart_addr),
+        .read_enable(cart_read_enable)
+    );
 
-   peripheral_bin2bcd bin2bcd0 (
-      .clk(clk),
-      .reset(!resetn),
-      .d_in(mem_wdata[15:0]),
-      .cs(cs[1]),
-      .addr(mem_addr[4:0]), // 4 LSB from j1_io_addr
-      .rd(rd),
-      .wr(wr),
-      .d_out(bin2bcd_dout)
-   );
+    peripheral_uart #(.clk_freq(40_000_000), .baud(57_600)) per_uart (
+        .clk(clk), .rst(!resetn), .d_in(mem_wdata), .cs(uart_sel),
+        .addr(mem_addr[4:0]), .rd(mem_rstrb), .wr(wr), .d_out(uart_dout),
+        .uart_tx(TXD), .uart_rx(RXD), .ledout()
+    );
 
-   peripheral_bcd2bin bcd2bin0 (
-      .clk(clk),
-      .reset(!resetn),
-      .d_in(mem_wdata[19:0]),
-      .cs(cs[7]),
-      .addr(mem_addr[4:0]), // 4 LSB from j1_io_addr
-      .rd(rd),
-      .wr(wr),
-      .d_out(bcd2bin_dout)
-   );
+    peripheral_sqrt per_sqrt (
+        .clk(clk), .reset(!resetn), .d_in(mem_wdata[15:0]), .cs(sqrt_sel),
+        .addr(mem_addr[4:0]), .rd(mem_rstrb), .wr(wr), .d_out(sqrt_dout)
+    );
 
+    peripheral_bin2bcd bin2bcd0 (
+        .clk(clk), .reset(!resetn), .d_in(mem_wdata[15:0]), .cs(bin2bcd_sel),
+        .addr(mem_addr[4:0]), .rd(mem_rstrb), .wr(wr), .d_out(bin2bcd_dout)
+    );
 
-// --------------------------------------------------------------#
-// --------------------------------------------------------------#
-// --------Instanciacion del periferico a probar ----------------#
-// --------------------------------------------------------------#
-// --------------------------------------------------------------#
-   peripheral_test mult1 (
-      .clk(clk),
-      .reset(!resetn),
-      .d_in(mem_wdata[15:0]),
-      .cs(cs[3]),
-      .addr(mem_addr[4:0]),
-      .rd(rd),
-      .wr(wr),
-      .d_out(test_dout)
-   );
+    peripheral_bcd2bin bcd2bin0 (
+        .clk(clk), .reset(!resetn), .d_in(mem_wdata[19:0]), .cs(bcd2bin_sel),
+        .addr(mem_addr[4:0]), .rd(mem_rstrb), .wr(wr), .d_out(bcd2bin_dout)
+    );
 
-  always @*
-  begin
-      case (mem_addr[31:16])	// direcciones - chip_select
-        16'h0040: cs= 8'b00100000; //uart
-        16'h0041: cs= 8'b00010000; //sqrt
-        16'h0042: cs= 8'b00001000; //mult
-        16'h0043: cs= 8'b00000100; //div
-        16'h0044: cs= 8'b00000010; //bin_to_bcd
-        16'h0045: cs= 8'b01000000; //dpRAM
-        16'h0046: cs= 8'b10000000; //bcd_to_bin
-        16'h0000: cs= 8'b00000001; //RAM
-        default:  cs= 8'b00000001;
-      endcase
-  end
-  // ============== MUX ========================  // se encarga de lecturas del RV32
-  always @*
-  begin
-      case (cs)
-//        7'b1000000: mem_rdata = dpram_dout;
-        8'b10000000: mem_rdata = bcd2bin_dout;
-        8'b00100000: mem_rdata = uart_dout;
-        8'b00010000: mem_rdata = sqrt_dout;
-        8'b00001000: mem_rdata = test_dout;
-        8'b00000100: mem_rdata = div_dout;
-        8'b00000010: mem_rdata = bin2bcd_dout;
-        8'b00000001: mem_rdata = RAM_rdata;
-        default:  mem_rdata = RAM_rdata;
-      endcase
-  end
- // ============== MUX ========================  // 
-
-`ifdef BENCH
-   always @(posedge clk) begin
-      if(cs[5] & wr ) begin
-	 $write("%c", mem_wdata[7:0] );
-	 $fflush(32'h8000_0001);
-      end
-   end
-`endif
-
+    always @* begin
+        mem_rdata = 0;
+        if (cart_sel) mem_rdata = cart_dout;
+        else if (ram_sel) mem_rdata = ram_dout;
+        else if (uart_sel) mem_rdata = uart_dout;
+        else if (sqrt_sel) mem_rdata = sqrt_dout;
+        else if (bin2bcd_sel) mem_rdata = bin2bcd_dout;
+        else if (bcd2bin_sel) mem_rdata = bcd2bin_dout;
+    end
 endmodule

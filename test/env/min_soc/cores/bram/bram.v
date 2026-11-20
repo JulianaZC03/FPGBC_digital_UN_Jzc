@@ -11,10 +11,6 @@ module bram (
 
    reg [31:0] MEM [0:2047];    // Modificar .equ IO_HW_CONFIG_RAM, 8192  (2048 palabras de 32 bits = 2048 * 4 bytes) en libfemtorv/include/HardwareConfig_bits.inc 
 
-   initial begin
-       $readmemh("./firmware.hex",MEM);
-   end
-
    wire [29:0] word_addr = mem_addr[31:2];
 
    always @(posedge clk) begin
