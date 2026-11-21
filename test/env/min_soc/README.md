@@ -1,3 +1,5 @@
+#Nota: estas pruebas ya no van a funcionar, se movieron al repositorio de cartucho,sin embargo algunas dependencias quedan aqui por si algo
+
 # Calculadora FPGBC desde cartucho
 
 La CPU FemtoRV32 ejecuta la calculadora ya grabada en el cartucho.
