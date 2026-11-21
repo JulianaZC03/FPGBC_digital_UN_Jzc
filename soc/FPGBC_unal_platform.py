@@ -23,8 +23,8 @@ _io = [
 
     # GB Link.
     ("GB_Link", 0,
-        Subsignal("serial_out", Pins("28")),
-        Subsignal("serial_in", Pins("27")),
+        Subsignal("serial_out", Pins("27")),
+        Subsignal("serial_in", Pins("28")),
         Subsignal("clk",Pins("30")),
         Subsignal("clk_oe",Pins("29")),
         IOStandard("LVCMOS33")
