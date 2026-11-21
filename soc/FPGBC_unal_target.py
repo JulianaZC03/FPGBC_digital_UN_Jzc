@@ -114,8 +114,11 @@ class BaseSoC(SoCCore):
             self.game_buttons = GPIOIn(pads=platform.request("game_buttons_n"),with_irq=self.irq.enabled)
             if self.irq.enabled: 
                 self.irq.add("game_buttons", use_loc_if_exists=True)
-        if with_volume_buttons:    
-            self.volume_buttons = GPIOIn(pads=platform.request("volume_buttons_n"))
+        #if with_volume_buttons:    
+        #    self.volume_buttons = GPIOIn(pads=platform.request("volume_buttons_n"),with_irq=self.irq.enabled)
+        #    if self.irq.enabled: 
+        #        self.irq.add("volume_buttons", use_loc_if_exists=True)
+
 # Build --------------------------------------------------------------------------------------------
 
 def main():
@@ -133,7 +136,8 @@ def main():
         cpu_type="femtorv",
         cpu_variant="intermissum",#Soporte para interrupciones, no tiene soporte por parte de LiteX
         toolchain="apicula",
-        integrated_main_ram_size = 0x4000#16KiB ~16KB
+        integrated_main_ram_size = 0x4000,#16KiB ~16KB
+        with_game_buttons = True
         )
     args = parser.parse_args()
     soc = BaseSoC(
@@ -141,7 +145,7 @@ def main():
         sys_clk_freq         = args.sys_clk_freq,
         #with_spi_flash       = args.with_spi_flash,
         with_game_buttons = args.with_game_buttons,
-        #with_volume_buttons = args.with_volume_buttons, 
+        with_volume_buttons = args.with_volume_buttons, 
         **parser.soc_argdict
     )
 
