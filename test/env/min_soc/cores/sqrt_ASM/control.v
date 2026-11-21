@@ -15,22 +15,22 @@ module control_sqrt( clk , rst , init, msb, z, done, ld_tmp, r0, sh, ld, lda2);
 
 
 
- parameter START     = 3'b000;
- parameter CHECK     = 3'b001;
- parameter SHIFT_DEC = 3'b010;
- parameter LOAD_TMP  = 3'b011;
- parameter LOAD_A2   = 3'b100;
- parameter CHECK_Z   = 3'b101;
- parameter END1      = 3'b110;
+  parameter START     = 4'b0000;
+  parameter CHECK     = 4'b0001;
+  parameter SHIFT_DEC = 4'b0010;
+  parameter LOAD_TMP  = 4'b0011;
+  parameter LOAD_A2   = 4'b0100;
+  parameter CHECK_Z   = 4'b0101;
+  parameter END1      = 4'b0110;
+  parameter WAIT_INIT = 4'b0111;
+  parameter LOAD_NEW  = 4'b1000;
 
  
- reg [2:0] state;
- reg [7:0] count;
+  reg [3:0] state;
 
 always @(posedge clk) begin
   if (rst) begin
     state = START;
-    count = 0;
   end else begin
   case(state)
 
@@ -39,7 +39,6 @@ always @(posedge clk) begin
         state = SHIFT_DEC;
       else
         state = START;
-      count = 0;
     end
 
     SHIFT_DEC: begin
@@ -73,8 +72,18 @@ always @(posedge clk) begin
     end
 
     END1: begin
-      count = count + 1;
-      state = (count>30) ? START : END1;
+      // No repetir si el inicio anterior sigue alto.
+      state = (!init) ? WAIT_INIT : END1;
+    end
+
+    WAIT_INIT: begin
+      // DONE y resultado se conservan hasta una nueva orden.
+      state = (init) ? LOAD_NEW : WAIT_INIT;
+    end
+
+    LOAD_NEW: begin
+      // Cargar durante un ciclo completo, aunque init ya vuelva a cero.
+      state = SHIFT_DEC;
     end
 
     default: state = START;
@@ -85,7 +94,7 @@ end
 
 always @(*) begin
   case(state)
-    START: begin
+    START, LOAD_NEW: begin
       done   = 0; 
       ld_tmp = 0; 
       r0     = 0; 
@@ -139,7 +148,7 @@ always @(*) begin
       lda2   = 0; 
     end
 
-    END1: begin
+    END1, WAIT_INIT: begin
       done   = 1; 
       ld_tmp = 0; 
       r0     = 0; 
@@ -172,6 +181,8 @@ always @(*) begin
     LOAD_TMP  : state_name = "LOAD_TMP";
     LOAD_A2   : state_name = "LOAD_A2";
     END1      : state_name = "END1";
+    WAIT_INIT : state_name = "WAIT_INIT";
+    LOAD_NEW  : state_name = "LOAD_NEW";
   endcase
 end
 `endif

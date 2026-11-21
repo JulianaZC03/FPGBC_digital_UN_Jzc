@@ -16,21 +16,20 @@ module ctrl_b2b( clk , rst , init, done, sh, ld, sel, ld_msb, add, z );
  parameter SHIFT_DEC = 3'b010;
  parameter ADD       = 3'b011;
  parameter LOAD_A2   = 3'b100;
- parameter END1      = 3'b101;
+  parameter END1      = 3'b101;
+  parameter WAIT_INIT = 3'b110;
+  parameter LOAD_NEW  = 3'b111;
 
  
  reg [2:0] state;
- reg [5:0] count;
 
 always @(posedge clk) begin
   if (rst) begin
     state = START;
-    count = 0;
   end else begin
   case(state)
 
     START:begin
-      count = 0;
       if(init)
         state = SHIFT_DEC;
       else
@@ -60,8 +59,18 @@ always @(posedge clk) begin
     end
 
     END1: begin
-      count = count + 1;
-      state = (count>30) ? START : END1;
+      // No repetir si el inicio anterior sigue alto.
+      state = (!init) ? WAIT_INIT : END1;
+    end
+
+    WAIT_INIT: begin
+      // DONE y resultado se conservan hasta una nueva orden.
+      state = (init) ? LOAD_NEW : WAIT_INIT;
+    end
+
+    LOAD_NEW: begin
+      // Cargar durante un ciclo completo, aunque init ya vuelva a cero.
+      state = SHIFT_DEC;
     end
 
     default: state = START;
@@ -72,7 +81,7 @@ end
 
 always @(*) begin
   case(state)
-    START: begin
+    START, LOAD_NEW: begin
       done   = 0;
       ld_msb = 0;
       sel    = 0;
@@ -119,7 +128,7 @@ always @(*) begin
       add    = 0;
     end
 
-    END1: begin
+    END1, WAIT_INIT: begin
       done   = 1;
       ld_msb = 0;
       sel    = 0;
@@ -150,6 +159,8 @@ always @(*) begin
     ADD       : state_name = "ADD";
     LOAD_A2   : state_name = "LOAD_A2";
     END1      : state_name = "END1";
+    WAIT_INIT : state_name = "WAIT_INIT";
+    LOAD_NEW  : state_name = "LOAD_NEW";
   endcase
 end
 `endif

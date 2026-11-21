@@ -109,13 +109,12 @@ cable ft232RL --pins TXD:CTS:DTR:RXD
 [ FPGBC_digital_UN]$ pixi run make -C test/env/min_soc <comando>
 ```
 Con los comandos presentes en el Makefile:
- - sim_irq
- - build_gw2ar_eq144
- - configure_gw2ar_eq144
- - test_gowin
+ - sim_cart_calc
+ - check_synth
+ - build_cart_calc
+ - configure_cart_calc
+ - load_cart_calc
  - detect
- - configure_test
-
 
 
 
